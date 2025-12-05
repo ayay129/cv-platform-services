@@ -49,3 +49,4 @@ Thumbs.db
 resources/*.onnx.data
 resources/*.pth
 sources/*.pth
+algo-feature-models
