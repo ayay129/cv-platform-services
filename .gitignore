@@ -1,0 +1,51 @@
+# Python 编译产物与缓存
+__pycache__/
+*.py[cod]
+*.pyo
+
+# 虚拟环境目录
+.venv/
+venv/
+env/
+ENV/
+
+# 构建/打包产物
+build/
+dist/
+*.egg-info/
+*.egg
+*.whl
+
+# 测试与覆盖率缓存
+.pytest_cache/
+.tox/
+.coverage*
+coverage.xml
+htmlcov/
+
+# 日志与临时文件
+*.log
+*.tmp
+*.bak
+
+# 操作系统与IDE文件
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# 环境变量文件
+.env
+.env.*
+*.env
+
+# Jupyter
+.ipynb_checkpoints/
+
+# 模型相关的大文件（按需调整是否追踪）
+*.onnx
+*.pth
+# 这里默认不追踪外部数据文件与原始权重
+resources/*.onnx.data
+resources/*.pth
+sources/*.pth

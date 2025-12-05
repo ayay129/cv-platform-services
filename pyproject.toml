@@ -1,0 +1,34 @@
+[project]
+name = "fuxi-image-feature"
+version = "0.1.0"
+description = ""
+authors = [
+    { name = "Zhu", email = "1@qq.com" }
+]
+
+requires-python = ">=3.10,<3.11"
+
+dependencies = [
+    "efficientnet-pytorch==0.7.1",
+    "pillow==8.1.2",
+    "timm==0.4.12",
+    "fastapi>=0.115.12,<0.116.0",
+    "uvicorn>=0.34.2,<0.35.0",
+    "loguru>=0.7.3,<0.8.0",
+    "python-multipart>=0.0.6",
+    "orjson==3.9.1",
+    "onnxruntime>=1.16.0,<2.0.0",
+    "onnx>=1.16,<1.17",
+    "onnxscript>=0.5.6",
+    "torch==2.9.1",
+    "torchvision==0.24.1"
+]
+
+# 让 uv / pip 能正确构建项目
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+# 手动指定要包含的源码目录（等价于 poetry 的 packages）
+[tool.setuptools.package-dir]
+feature = "feature"
