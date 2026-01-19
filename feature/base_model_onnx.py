@@ -1,5 +1,6 @@
 import base64
 import io
+import os
 from typing import Callable, List, Optional, Union
 
 import numpy as np
@@ -33,7 +34,16 @@ class BaseOnnxModel:
     ) -> None:
         # 选择可用的推理后端（优先 CUDA，其次 CPU）；如均不可用则交由 ORT 默认策略
         available = set(ort.get_available_providers())
-        default = providers or ["CUDAExecutionProvider", "CPUExecutionProvider"]
+        env_providers = os.getenv("FEATURE_ORT_PROVIDERS")
+        if providers is None and env_providers:
+            default = [p.strip() for p in env_providers.split(",") if p.strip()]
+        else:
+            default = providers or [
+                "AscendExecutionProvider",
+                "ACLExecutionProvider",
+                "CUDAExecutionProvider",
+                "CPUExecutionProvider",
+            ]
         selected = [p for p in default if p in available]
 
         # If none selected, let ORT decide the default provider

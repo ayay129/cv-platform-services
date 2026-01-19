@@ -3,30 +3,25 @@ import timm
 from torchvision import transforms
 import base64
 import io
-from typing import List
+from typing import List, Optional
 import numpy as np
 from PIL import Image
-
-try:
-    import onnxruntime as ort
-except ImportError as e:
-    raise ImportError("onnxruntime is required for ONNX inference. Please install it.") from e
 
 from .base_model_onnx import BaseOnnxModel
 
 
 class EfficientNetB7Onnx(BaseOnnxModel):
-    def __init__(self, onnx_model_path: str = "resources/tf_efficientnet_b7_ns-1dbc32de.onnx"):
+    def __init__(
+        self,
+        onnx_model_path: str = "resources/tf_efficientnet_b7_ns-1dbc32de.onnx",
+        providers: Optional[List[str]] = None,
+    ):
         image_size = 600
         tfms = transforms.Compose([
             transforms.Resize((image_size, image_size)),
             transforms.ToTensor(),
             transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
         ])
-
-        # Select available providers (CUDA if present, otherwise CPU)
-        available = set(ort.get_available_providers())
-        providers = [p for p in ["CUDAExecutionProvider", "CPUExecutionProvider"] if p in available]
 
         super().__init__(
             onnx_model_path=onnx_model_path,
