@@ -2,8 +2,9 @@ import base64
 import glob
 import io
 import os
+import shutil
 import subprocess
-import tempfile
+import uuid
 from typing import List, Optional
 
 import numpy as np
@@ -74,7 +75,7 @@ class EfficientNetB7AisBench:
         self.input_shape = input_shape or os.getenv("FEATURE_OM_INPUT_SHAPE", "1,3,600,600")
         self.input_dtype = (input_dtype or os.getenv("FEATURE_OM_INPUT_DTYPE", "float32")).lower()
         self.output_dtype = (output_dtype or os.getenv("FEATURE_OM_OUTPUT_DTYPE", self.input_dtype)).lower()
-        self.output_shape = output_shape or os.getenv("FEATURE_OM_OUTPUT_SHAPE", "")
+        self.output_shape = output_shape or os.getenv("FEATURE_OM_OUTPUT_SHAPE", "1,64,19,19")
         self.device_id = device_id if device_id is not None else int(os.getenv("FEATURE_DEVICE_ID", "0"))
 
         image_size = self._infer_image_size(self.input_shape)
@@ -122,10 +123,19 @@ class EfficientNetB7AisBench:
         return x
 
     def _run_ais_bench(self, x: np.ndarray) -> np.ndarray:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            input_path = os.path.join(tmpdir, "input.bin")
-            output_dir = os.path.join(tmpdir, "output")
-            os.makedirs(output_dir, exist_ok=True)
+        base_dir = os.getenv("FEATURE_AIS_BENCH_IO_DIR", "resources/ais_bench_io")
+        work_id = uuid.uuid4().hex
+        input_dir = os.path.join(base_dir, "input", work_id)
+        output_root = os.path.join(base_dir, "output")
+        output_dirname = work_id
+        input_path = os.path.join(input_dir, "input.bin")
+        os.makedirs(input_dir, mode=0o750, exist_ok=True)
+        os.makedirs(output_root, mode=0o750, exist_ok=True)
+        os.chmod(base_dir, 0o750)
+        os.chmod(os.path.join(base_dir, "input"), 0o750)
+        os.chmod(os.path.join(base_dir, "output"), 0o750)
+        os.chmod(input_dir, 0o750)
+        try:
             x.tofile(input_path)
 
             cmd = [
@@ -135,21 +145,24 @@ class EfficientNetB7AisBench:
                 "--model",
                 self.om_path,
                 "--input",
-                input_path,
+                input_dir,
                 "--output",
-                output_dir,
+                output_root,
+                "--output_dirname",
+                output_dirname,
                 "--device",
                 str(self.device_id),
-                "--input_shape",
-                f"{self.input_name}:{self.input_shape}",
-                "--input_type",
-                f"{self.input_name}:{self.input_dtype}",
+                # "--input_shape",
+                # f"{self.input_name}:{self.input_shape}",
+                # "--input_type",
+                # f"{self.input_name}:{self.input_dtype}",
             ]
             result = subprocess.run(cmd, capture_output=True, text=True)
             if result.returncode != 0:
                 raise RuntimeError(result.stdout + "\n" + result.stderr)
 
             output_bins = []
+            output_dir = os.path.join(output_root, output_dirname)
             for root, _, files in os.walk(output_dir):
                 for name in files:
                     if name.endswith(".bin"):
@@ -164,6 +177,9 @@ class EfficientNetB7AisBench:
             if shape and int(np.prod(shape)) == y.size:
                 y = y.reshape(shape)
             return y
+        finally:
+            shutil.rmtree(input_dir, ignore_errors=True)
+            shutil.rmtree(os.path.join(output_root, output_dirname), ignore_errors=True)
 
     def decode(self, outputs: np.ndarray) -> np.ndarray:
         y = outputs
@@ -233,12 +249,15 @@ if __name__ == "__main__":
     #print(torch.cuda.is_available(), torch.cuda.get_device_name())
     intermediate_model = EfficientNetBottom("resources/tf_efficientnet_b7_ns-1dbc32de.pth")
     onnx_model = EfficientNetB7Onnx("resources/tf_efficientnet_b7_ns-1dbc32de.onnx")
-
+    om_model = EfficientNetB7AisBench("resources/tf_efficientnet_b7_ns-1dbc32de.om")
     path = "test/生成真实人物图片.png"
     with open(path, 'rb') as f:
         img_bytes = f.read()
         features1 = intermediate_model.forward(img_bytes)
         features2 = onnx_model.forward(img_bytes)
+        features3 = om_model.forward(img_bytes)
 
         print(len(features1), features1[:8])
         print(len(features2),features2[:8])
+        print(len(features3),features3[:8])
+    print(timm.__version__)
