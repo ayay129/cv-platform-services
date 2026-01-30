@@ -2,9 +2,6 @@ import base64
 import glob
 import io
 import os
-import shutil
-import subprocess
-import uuid
 from typing import List, Optional
 
 import numpy as np
@@ -14,7 +11,7 @@ import torch
 from torchvision import transforms
 
 from .base_model_onnx import BaseOnnxModel
-
+from ais_bench.infer.interface import InferSession
 
 class EfficientNetB7Onnx(BaseOnnxModel):
     def __init__(
@@ -51,6 +48,9 @@ class EfficientNetB7Onnx(BaseOnnxModel):
 
 
 class EfficientNetB7AisBench:
+    _session = None
+    _session_key = None
+
     def __init__(
         self,
         om_path: Optional[str] = None,
@@ -84,6 +84,7 @@ class EfficientNetB7AisBench:
             transforms.ToTensor(),
             transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
         ])
+        self._ensure_session()
 
     def _infer_image_size(self, shape: str) -> int:
         parts = [int(p) for p in shape.split(",") if p.strip().isdigit()]
@@ -119,67 +120,43 @@ class EfficientNetB7AisBench:
         x = self.tfms(image)
         if hasattr(x, "unsqueeze") and getattr(x, "dim", lambda: 0)() == 3:
             x = x.unsqueeze(0)
-        x = x.numpy().astype(self._dtype(self.input_dtype))
+        x = x.numpy().astype(self._dtype(self.input_dtype), copy=False)
+        if not x.flags["C_CONTIGUOUS"]:
+            x = np.ascontiguousarray(x)
         return x
 
-    def _run_ais_bench(self, x: np.ndarray) -> np.ndarray:
-        base_dir = os.getenv("FEATURE_AIS_BENCH_IO_DIR", "resources/ais_bench_io")
-        work_id = uuid.uuid4().hex
-        input_dir = os.path.join(base_dir, "input", work_id)
-        output_root = os.path.join(base_dir, "output")
-        output_dirname = work_id
-        input_path = os.path.join(input_dir, "input.bin")
-        os.makedirs(input_dir, mode=0o750, exist_ok=True)
-        os.makedirs(output_root, mode=0o750, exist_ok=True)
-        os.chmod(base_dir, 0o750)
-        os.chmod(os.path.join(base_dir, "input"), 0o750)
-        os.chmod(os.path.join(base_dir, "output"), 0o750)
-        os.chmod(input_dir, 0o750)
-        try:
-            x.tofile(input_path)
+    def _ensure_session(self) -> None:
+        key = (self.device_id, self.om_path)
+        if self.__class__._session is None or self.__class__._session_key != key:
+            self.__class__._session = InferSession(self.device_id, self.om_path)
+            self.__class__._session_key = key
+        self.session = self.__class__._session
 
-            cmd = [
-                "python",
-                "-m",
-                "ais_bench",
-                "--model",
-                self.om_path,
-                "--input",
-                input_dir,
-                "--output",
-                output_root,
-                "--output_dirname",
-                output_dirname,
-                "--device",
-                str(self.device_id),
-                # "--input_shape",
-                # f"{self.input_name}:{self.input_shape}",
-                # "--input_type",
-                # f"{self.input_name}:{self.input_dtype}",
-            ]
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            if result.returncode != 0:
-                raise RuntimeError(result.stdout + "\n" + result.stderr)
+    def _input_realsize(self) -> Optional[int]:
+        if hasattr(self.session, "get_inputs"):
+            inputs = self.session.get_inputs()
+            if inputs:
+                return getattr(inputs[0], "realsize", None)
+        return None
 
-            output_bins = []
-            output_dir = os.path.join(output_root, output_dirname)
-            for root, _, files in os.walk(output_dir):
-                for name in files:
-                    if name.endswith(".bin"):
-                        output_bins.append(os.path.join(root, name))
-            if not output_bins:
-                raise FileNotFoundError("No output bin found from ais_bench")
-            output_bins.sort()
-            output_path = output_bins[0]
-
-            y = np.fromfile(output_path, dtype=self._dtype(self.output_dtype))
-            shape = self._parse_shape(self.output_shape)
-            if shape and int(np.prod(shape)) == y.size:
-                y = y.reshape(shape)
-            return y
-        finally:
-            shutil.rmtree(input_dir, ignore_errors=True)
-            shutil.rmtree(os.path.join(output_root, output_dirname), ignore_errors=True)
+    def _run_session(self, x: np.ndarray) -> np.ndarray:
+        mode = os.getenv("FEATURE_AIS_BENCH_MODE")
+        custom_sizes = os.getenv("FEATURE_AIS_BENCH_CUSTOM_SIZES")
+        if custom_sizes:
+            try:
+                custom_sizes = int(custom_sizes)
+            except ValueError:
+                custom_sizes = None
+        if mode:
+            outputs = self.session.infer([x], mode, custom_sizes=custom_sizes)
+        else:
+            try:
+                outputs = self.session.infer([x])
+            except Exception:
+                outputs = self.session.infer([[x]])
+        if isinstance(outputs, list) and outputs:
+            return np.asarray(outputs[0])
+        return np.asarray(outputs)
 
     def decode(self, outputs: np.ndarray) -> np.ndarray:
         y = outputs
@@ -202,7 +179,10 @@ class EfficientNetB7AisBench:
     def forward(self, img: bytes, mode: int = 0) -> List[float]:
         image = self.load_image(img, mode=mode)
         x = self.preprocess(image)
-        outputs = self._run_ais_bench(x)
+        realsize = self._input_realsize()
+        if realsize and x.nbytes != realsize:
+            raise RuntimeError(f"Input bytes {x.nbytes} != model input size {realsize}")
+        outputs = self._run_session(x)
         vec = self.decode(outputs)
         return self.postprocess(vec)
 

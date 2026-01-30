@@ -14,7 +14,7 @@ class FeatureService:
                 input_shape=os.getenv("FEATURE_OM_INPUT_SHAPE", "1,3,600,600"),
                 input_dtype=os.getenv("FEATURE_OM_INPUT_DTYPE", "float32"),
                 output_dtype=os.getenv("FEATURE_OM_OUTPUT_DTYPE", None),
-                output_shape=os.getenv("FEATURE_OM_OUTPUT_SHAPE", ""),
+                output_shape=os.getenv("FEATURE_OM_OUTPUT_SHAPE", "1,64,19,19"),
                 device_id=int(os.getenv("FEATURE_DEVICE_ID", "0")),
             )
             logger.info("Feature backend: ais_bench (OM)")
